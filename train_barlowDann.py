@@ -46,10 +46,9 @@ print("detected datasets: ",source_dataset, " ",target_dataset)
 source_data_class_names, source_dataloader, source_barlow_dataloader = get_data(source_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
 target_data_class_names, target_dataloader, target_barlow_dataloader = get_data(target_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
 
-
 # load model
 
-my_net = DANN(class_names_len=len(source_data_class_names))
+my_net = BARLOW_DANN(class_names_len=len(source_data_class_names), lambd=3.9e-3, scale_factor=0.1)
 pytorch_total_params = sum(p.numel() for p in my_net.parameters() if p.requires_grad)
 print('learnable parameters: ', pytorch_total_params)
 
@@ -87,20 +86,20 @@ if use_barlow:
 
 #helper functon for testing
 def test(model_path, dataloader, len_classnames, use_dict=False):
-    my_net = DANN(len_classnames)
+    my_net = BARLOW_DANN(len_classnames,lambd=3.9e-3, scale_factor=0.1)
     my_net.load_state_dict(torch.load(model_path))
     my_net = my_net.eval()
 
     my_net = my_net.to(device)
-
+    print("number of classes: ", len_classnames)
     len_dataloader = len(dataloader)
     data_target_iter = iter(dataloader)
 
     i = 0
     n_total = 0
     n_correct = 0
-    total_labels = []
     total_preds = []
+    total_labels = []
 
     while i < len_dataloader:
 
@@ -111,7 +110,7 @@ def test(model_path, dataloader, len_classnames, use_dict=False):
         t_img = t_img.to(device)
         t_label = t_label.to(device)
 
-        class_output, _ = my_net(input_data=t_img, alpha=0)
+        class_output = my_net(input_data=t_img, alpha=0, mode='test')
         pred = class_output.data.max(1, keepdim=True)[1]
 
         if use_dict:
@@ -128,7 +127,7 @@ def test(model_path, dataloader, len_classnames, use_dict=False):
         i += 1
 
     # print(valid_pred)
-
+    
     accu = n_correct.data.numpy() * 1.0 / n_total
     acc,aacc = visda_acc(total_preds,total_labels)
     micro_acc = micro_accuracy(total_preds, total_labels)
@@ -165,35 +164,37 @@ for epoch in range(n_epoch):
         # training model using source data
         data_source = data_source_iter.next()
         s_img, s_label = data_source
-
-        my_net.zero_grad()
-        batch_size = len(s_label)
-
-        domain_label = torch.zeros(batch_size).long()
-
-
-        s_img = s_img.to(device)
-        s_label = s_label.to(device)
-        domain_label = domain_label.to(device)
-
-
-        class_output, domain_output = my_net(input_data=s_img, alpha=alpha)
-        err_s_label = loss_class(class_output, s_label)
-        err_s_domain = loss_domain(domain_output, domain_label)
-
-        # training model using target data
         data_target = data_target_iter.next()
         t_img, _ = data_target
+        min_batch_shape=0
+
+        s_img = torch.unsqueeze(s_img,dim=-1)
+        t_img = torch.unsqueeze(t_img, dim=-1)
+        try:
+            input_data = torch.cat([s_img,t_img], dim=-1).to(device)
+        except:
+            #for the last iteration there will be a shape mismatch
+            min_batch_shape = min(s_img.size(0), t_img.size(0))
+            input_data = torch.cat([s_img[:min_batch_shape],t_img[:min_batch_shape]], dim=-1).to(device)
+            s_label = s_label[:min_batch_shape]
+
+
+        my_net.zero_grad()
+        #batch size has to be same for source and target
+        batch_size = len(s_label) if min_batch_shape==0 else min_batch_shape
+
+        domain_label = torch.zeros(batch_size).long()
+        domain_label = domain_label.to(device)
+        s_label = s_label.to(device)
+
+        barlow_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha)
+        err_s_label = loss_class(class_output, s_label)
+        err_s_domain = loss_domain(src_domain_output, domain_label)
 
         batch_size = len(t_img)
-
         domain_label = torch.ones(batch_size).long()
-
-        t_img = t_img.to(device)
         domain_label = domain_label.to(device)
-
-        _, domain_output = my_net(input_data=t_img, alpha=alpha)
-        err_t_domain = loss_domain(domain_output, domain_label)
+        err_t_domain = loss_domain(tgt_domain_output, domain_label)
         
         if use_barlow:
             #barlow twin loss
@@ -204,7 +205,8 @@ for epoch in range(n_epoch):
             err_barlow = err_bt_s + err_bt_t
 
 
-        err = err_t_domain + err_s_domain + err_s_label
+        err = err_s_label + barlow_loss
+        # err = err_t_domain + 0.33*err_s_domain + err_s_label + barlow_loss
         # err = err_s_label
         err.backward()
         if use_barlow:
@@ -215,13 +217,13 @@ for epoch in range(n_epoch):
             optimizer_barlow.step()
 
         if use_barlow:
-            sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f, err_s_bt: %f, err_t_bt: %f' \
+            sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f, barlow loss: %f, err_s_bt: %f, err_t_bt: %f' \
             % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
-                err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item(), err_bt_s.data.cpu(),err_bt_t.data.cpu()))
+                err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item(), barlow_loss.data.cpu().item(),err_bt_s.data.cpu(),err_bt_t.data.cpu()))
         else:
-            sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f' \
+            sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f,  barlow loss: %f' \
                 % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
-                err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item()))
+                err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item(), barlow_loss.data.cpu().item()))
 
         sys.stdout.flush()
 

@@ -261,18 +261,38 @@ class BARLOW_DANN(nn.Module):
         self.scale_factor = scale_factor
 
 
-    def forward(self, input_data, alpha):
-        # input_data = input_data.expand(input_data.data.shape[0], 3, 28, 28)
-        feature = self.feature(input_data)
-        feature = feature.view(-1, self.feature.in_features)
-        class_output = self.class_classifier(feature)
+    def forward(self, input_data, alpha, mode='train'):
+        if mode=='train':
+            # input_data is of the shape batchX3X224X224X2
+            src_input = input_data[:,:,:,:,0]
+            tgt_input = input_data[:,:,:,:,1]
+            src_feature = self.feature(src_input)
+            tgt_feature = self.feature(tgt_input)
+
+            src_feature = src_feature.view(-1, self.feature.in_features)
+            tgt_feature = tgt_feature.view(-1, self.feature.in_features)
+
+        else:
+            # input_data is of the shape batchX3X224X224X2
+            src_input = input_data
+            src_feature = self.feature(src_input)
+            src_feature = src_feature.view(-1, self.feature.in_features)
+
+            class_output = self.class_classifier(src_feature)
+            return class_output
+
+
+        class_output = self.class_classifier(src_feature)
         # class_output = feature
-        domain_output = self.domain_classifier(feature)
-        domain_logits = self.domain_softmax(domain_output)
+        src_domain_output = self.domain_classifier(src_feature)
+        tgt_domain_output = self.domain_classifier(src_feature)
+
+        src_domain_logits = self.domain_softmax(src_domain_output)
+        tgt_domain_logits = self.domain_softmax(tgt_domain_output)
 
         # empirical cross-correlation matrix
-        c = torch.mm(domain_output.T, domain_output)
-        c.div_(domain_output.shape[0])
+        c = torch.mm(src_domain_output.T, tgt_domain_output)
+        c.div_(src_domain_output.shape[0])
 
 
         # use --scale-loss to multiply the loss by a constant factor
@@ -280,4 +300,4 @@ class BARLOW_DANN(nn.Module):
         on_diag = torch.diagonal(c).add_(-1).pow_(2).sum()
         off_diag = off_diagonal(c).pow_(2).sum()
         barlow_loss = self.scale_factor*(on_diag + self.lambd * off_diag)
-        return barlow_loss, class_output, domain_logits
+        return barlow_loss, class_output, src_domain_logits, tgt_domain_logits

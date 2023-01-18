@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from sklearn.metrics import confusion_matrix
 
 def mapper_d99_cat(labels_d99, preds_d99):
     labels_99_arr = labels_d99.cpu().numpy()
@@ -30,3 +31,19 @@ def mapper_d99_cat(labels_d99, preds_d99):
     valid_labels = converted_labels[valid_idxs]
     valid_preds = preds_99_arr[valid_idxs]
     return torch.Tensor(valid_preds), torch.Tensor(valid_labels)
+
+
+
+
+def visda_acc(predict, all_label):
+    matrix = confusion_matrix(all_label, predict)
+    acc = matrix.diagonal()/matrix.sum(axis=1) * 100
+    aacc = acc.mean()
+    aa = [str(np.round(i, 2)) for i in acc]
+    acc = ' '.join(aa)
+    return aacc, acc
+
+def micro_accuracy(predict, all_label):
+    predict_np = np.array(predict)
+    all_label_np = np.array(all_label)
+    return (predict_np==all_label_np).mean()
