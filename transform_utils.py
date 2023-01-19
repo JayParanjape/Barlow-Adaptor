@@ -120,3 +120,22 @@ data_transforms = {
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ]),
 }
+
+data_transforms_office = {
+    'train': transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize([0.40787054, 0.45752458, 0.48109378], [0.229, 0.224, 0.225])
+    ]),
+    'val': transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.40787054, 0.45752458, 0.48109378], [0.229, 0.224, 0.225])
+    ]),
+    'test': transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.40787054, 0.45752458, 0.48109378], [0.229, 0.224, 0.225])
+    ]),
+}
