@@ -11,11 +11,11 @@ from transform_utils import Transform, data_transforms, data_transforms99, data_
 
 def get_data(dataset, batch_size=32, barlow_batch_size=32):
     if dataset=='cataracts':
-        data_dir = "../../data/cataracts/instrument_split_15/"
+        data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_cataracts"
         chosen_data_transform = data_transforms
 
     elif dataset=='d99':
-        data_dir = "../../data/cataracts/dataset99_ins_split_balanced_phoenix/image_extracts_balanced/"
+        data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_d99"
         chosen_data_transform = data_transforms99
 
     elif dataset=='art':

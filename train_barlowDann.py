@@ -143,6 +143,8 @@ def test(model_path, dataloader, len_classnames, use_dict=False):
 # training
 save_file = sys.argv[5]
 save_path = './saved_models/'+save_file
+log_path = "./logs/"+save_file
+log_file = open(log_path,'w')
 best_accu_t = 0.0
 for epoch in range(n_epoch):
 
@@ -248,6 +250,9 @@ for epoch in range(n_epoch):
 
         print("best accuracy source: ", best_accu_s)
         print("best accuracy target: ", best_accu_t)
+        log_file.write(f'best accuracy source: {best_accu_s}')
+        log_file.write(f'best accuracy target: {best_accu_t}')
 
 print("best accuracy source: ", best_accu_s)
 print("best accuracy target: ", best_accu_t)
+log_file.close()
