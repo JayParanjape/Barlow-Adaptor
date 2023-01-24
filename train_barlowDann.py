@@ -12,6 +12,7 @@ arguments:
 10 - lr
 11 - barlow loss multiplier
 12 - DANN multiplier
+13 - loss type - use only GRL - loss2, dont use GRL - loss 1
 '''
 
 import torch.optim as optim
@@ -45,15 +46,16 @@ print("detected datasets: ",source_dataset, " ",target_dataset)
 
 source_data_class_names, source_dataloader, source_barlow_dataloader = get_data(source_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
 target_data_class_names, target_dataloader, target_barlow_dataloader = get_data(target_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
+barlow_loss_multiplier = float(sys.argv[11])
 
 # load model
 
-my_net = BARLOW_DANN(class_names_len=len(source_data_class_names), lambd=3.9e-3, scale_factor=0.1)
+my_net = BARLOW_DANN(class_names_len=len(source_data_class_names), lambd=3.9e-3, scale_factor=barlow_loss_multiplier)
 pytorch_total_params = sum(p.numel() for p in my_net.parameters() if p.requires_grad)
 print('learnable parameters: ', pytorch_total_params)
 
 use_barlow = True if sys.argv[9].lower()=='true' else False
-barlow_loss_multiplier = float(sys.argv[11])
+loss_type = sys.argv[13]
 #barlow twins model and loss
 if use_barlow:
     learner = BarlowTwins(my_net.feature, -1, [1024,1024, 1024, 1024],
@@ -138,11 +140,13 @@ def test(model_path, dataloader, len_classnames, use_dict=False):
     return accu
 
 #load if model available
-# my_net.load_state_dict(torch.load('./src_cata_model_best_timmViT.pth'))
+# my_net.load_state_dict(torch.load('/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models/src_d99_tgt_cataracts_noBarlow_noGRL_timm_bs16_bm1_loss1.pth'))
+# my_net.load_state_dict(torch.load('/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models/src_cataracts_tgt_d99_noBarlow_noGRL_timm_bs16_bm1_loss1.pth'))
+# my_net.load_state_dict(torch.load('/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models/src_cataracts_tgt_d99_timm_bs16_bm1e-2_loss1_best.pth'))
 
 # training
 save_file = sys.argv[5]
-save_path = './saved_models/'+save_file
+save_path = './cataracts_saved_models/'+save_file
 log_path = "./logs/"+save_file
 log_file = open(log_path,'w')
 best_accu_t = 0.0
@@ -206,10 +210,14 @@ for epoch in range(n_epoch):
             err_bt_t = learner(target_bt_data[0].to(device), target_bt_data[1].to(device))
             err_barlow = err_bt_s + err_bt_t
 
-
-        err = err_s_label + barlow_loss
-        # err = err_t_domain + err_s_domain + 0.33*err_s_label + barlow_loss
-        # err = err_s_label
+        if loss_type=='loss1':
+            err = err_s_label + barlow_loss
+        elif loss_type=='loss2':
+            err = err_t_domain + err_s_domain + 0.33*err_s_label + barlow_loss
+        elif loss_type=='loss3':
+            err = err_s_label + err_t_domain + err_s_domain
+        elif loss_type=='loss4':
+            err = err_s_label
         err.backward()
         if use_barlow:
             err_barlow.backward()
@@ -236,7 +244,7 @@ for epoch in range(n_epoch):
     if use_barlow:
         exp_lr_scheduler_barlow.step()
 
-    if epoch%10==0:
+    if epoch%5==0:
         use_dict_src = True if (sys.argv[3]).lower()=='true' else False
         accu_s = test(save_path, source_dataloader['val'],len(source_data_class_names),use_dict=use_dict_src)
         print('Accuracy of the %s dataset: %f' % (sys.argv[1], accu_s))
@@ -246,7 +254,7 @@ for epoch in range(n_epoch):
         if accu_t > best_accu_t:
             best_accu_s = accu_s
             best_accu_t = accu_t
-            torch.save(my_net.state_dict(), f'./src_{sys.argv[1]}_tgt_{sys.argv[2]}_model_best_timmViT.pth')
+            torch.save(my_net.state_dict(), save_path[:-4]+"_best.pth")
 
         print("best accuracy source: ", best_accu_s)
         print("best accuracy target: ", best_accu_t)
