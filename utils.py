@@ -1,7 +1,8 @@
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.metrics import confusion_matrix
-
+from data_utils import get_data
 '''
 01 - secondary incision knife - paracenthesis blade
 02 - bonn forceps - 0.12 forceps
@@ -94,3 +95,4 @@ def micro_accuracy(predict, all_label):
     predict_np = np.array(predict)
     all_label_np = np.array(all_label)
     return (predict_np==all_label_np).mean()
+

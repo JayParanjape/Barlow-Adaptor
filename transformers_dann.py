@@ -230,16 +230,30 @@ class ViTModels(nn.Module):
 
 class BARLOW_DANN(nn.Module):
 
-    def __init__(self, class_names_len, lambd, scale_factor=1, pretrained_weights=''):
+    def __init__(self, class_names_len, lambd, scale_factor=1, pretrained_weights='', use_vit=True):
         super(BARLOW_DANN, self).__init__()
         if pretrained_weights!='':
-            self.feature = ViTModels(in_features=class_names_len)
-            self.feature.load_state_dict(torch.load(pretrained_weights))
+            if use_vit:
+                self.feature = ViTModels(in_features=class_names_len)
+                self.in_features = self.feature.in_features
+            else:
+                self.feature = models.resnet50()
+                self.in_features = self.fc.in_features
+                self.feature.fc = nn.Identity()
+
+            self.feature.load_state_dict(torch.load(pretrained_weights),strict=False)
         else:
-            self.feature = ViTModels(in_features=1024)
+            if use_vit:
+                self.feature = ViTModels(in_features=1024)
+                self.in_features = self.feature.in_features
+            else:
+                self.feature = models.resnet50(pretrained=True)
+                self.in_features = self.feature.fc.in_features
+                self.feature.fc = nn.Identity()
+
 
         self.class_classifier = nn.Sequential()
-        self.class_classifier.add_module('c_fc1', nn.Linear(self.feature.in_features, 100))
+        self.class_classifier.add_module('c_fc1', nn.Linear(self.in_features, 100))
         self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
         self.class_classifier.add_module('c_drop1', nn.Dropout())
@@ -250,7 +264,7 @@ class BARLOW_DANN(nn.Module):
         self.class_classifier.add_module('c_softmax', nn.LogSoftmax(dim=1))
 
         self.domain_classifier = nn.Sequential()
-        self.domain_classifier.add_module('d_fc1', nn.Linear(self.feature.in_features, 100))
+        self.domain_classifier.add_module('d_fc1', nn.Linear(self.in_features, 100))
         self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(100))
         self.domain_classifier.add_module('d_relu1', nn.ReLU(True))
 
@@ -261,7 +275,7 @@ class BARLOW_DANN(nn.Module):
         self.scale_factor = scale_factor
 
 
-    def forward(self, input_data, alpha, mode='train'):
+    def forward(self, input_data, alpha, mode='train',use_barlow=True, use_coral=False, use_mmd=False):
         if mode=='train':
             # input_data is of the shape batchX3X224X224X2
             src_input = input_data[:,:,:,:,0]
@@ -269,14 +283,14 @@ class BARLOW_DANN(nn.Module):
             src_feature = self.feature(src_input)
             tgt_feature = self.feature(tgt_input)
 
-            src_feature = src_feature.view(-1, self.feature.in_features)
-            tgt_feature = tgt_feature.view(-1, self.feature.in_features)
+            src_feature = src_feature.view(-1, self.in_features)
+            tgt_feature = tgt_feature.view(-1, self.in_features)
 
         else:
             # input_data is of the shape batchX3X224X224X2
             src_input = input_data
             src_feature = self.feature(src_input)
-            src_feature = src_feature.view(-1, self.feature.in_features)
+            src_feature = src_feature.view(-1, self.in_features)
 
             class_output = self.class_classifier(src_feature)
             return class_output
@@ -290,14 +304,88 @@ class BARLOW_DANN(nn.Module):
         src_domain_logits = self.domain_softmax(src_domain_output)
         tgt_domain_logits = self.domain_softmax(tgt_domain_output)
 
-        # empirical cross-correlation matrix
-        c = torch.mm(src_domain_output.T, tgt_domain_output)
-        c.div_(src_domain_output.shape[0])
+        if use_barlow:
+            # empirical cross-correlation matrix
+            c = torch.mm(src_domain_output.T, tgt_domain_output)
+            c.div_(src_domain_output.shape[0])
 
 
-        # use --scale-loss to multiply the loss by a constant factor
-        # see the Issues section of the readme
-        on_diag = torch.diagonal(c).add_(-1).pow_(2).sum()
-        off_diag = off_diagonal(c).pow_(2).sum()
-        barlow_loss = self.scale_factor*(on_diag + self.lambd * off_diag)
-        return barlow_loss, class_output, src_domain_logits, tgt_domain_logits
+            # use --scale-loss to multiply the loss by a constant factor
+            # see the Issues section of the readme
+            on_diag = torch.diagonal(c).add_(-1).pow_(2).sum()
+            off_diag = off_diagonal(c).pow_(2).sum()
+            barlow_loss = self.scale_factor*(on_diag + self.lambd * off_diag)
+        else:
+            barlow_loss=0
+
+        # print("****Use Coral: ", use_coral)
+        if use_coral:
+            coral_loss = self.scale_factor*CORAL(src_feature, tgt_feature)
+        else:
+            coral_loss = 0
+
+        if use_mmd:
+            mmd = MMD_loss()
+            mmd_loss = self.scale_factor*mmd(src_feature, tgt_feature)
+        else:
+            mmd_loss = 0
+
+        feature_alignment_loss = barlow_loss + coral_loss + mmd_loss
+
+        return feature_alignment_loss, class_output, src_domain_logits, tgt_domain_logits
+
+
+def CORAL(source, target):
+    d = source.data.shape[1]
+
+    # source covariance
+    xm = torch.mean(source, 0, keepdim=True) - source
+    xc = xm.t() @ xm
+    # print("*****xc: ",xc)
+
+    # target covariance
+    xmt = torch.mean(target, 0, keepdim=True) - target
+    xct = xmt.t() @ xmt
+    # print("*****xtc: ",xct)
+
+
+    # frobenius norm between source and target
+    loss = torch.mean(torch.mul((xc - xct), (xc - xct)))
+    # loss = loss/(4*d*d)
+
+    return loss
+
+
+class MMD_loss(nn.Module):
+    def __init__(self, kernel_mul = 2.0, kernel_num = 5):
+        super(MMD_loss, self).__init__()
+        self.kernel_num = kernel_num
+        self.kernel_mul = kernel_mul
+        self.fix_sigma = None
+        return
+
+    def gaussian_kernel(self, source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
+        n_samples = int(source.size()[0])+int(target.size()[0])
+        total = torch.cat([source, target], dim=0)
+
+        total0 = total.unsqueeze(0).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
+        total1 = total.unsqueeze(1).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
+        L2_distance = ((total0-total1)**2).sum(2) 
+        if fix_sigma:
+            bandwidth = fix_sigma
+        else:
+            bandwidth = torch.sum(L2_distance.data) / (n_samples**2-n_samples)
+        bandwidth /= kernel_mul ** (kernel_num // 2)
+        bandwidth_list = [bandwidth * (kernel_mul**i) for i in range(kernel_num)]
+        kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
+        return sum(kernel_val)
+
+    def forward(self, source, target):
+        batch_size = int(source.size()[0])
+        kernels = self.gaussian_kernel(source, target, kernel_mul=self.kernel_mul, kernel_num=self.kernel_num, fix_sigma=self.fix_sigma)
+        XX = kernels[:batch_size, :batch_size]
+        YY = kernels[batch_size:, batch_size:]
+        XY = kernels[:batch_size, batch_size:]
+        YX = kernels[batch_size:, :batch_size]
+        loss = torch.mean(XX + YY - XY -YX)
+        return loss
