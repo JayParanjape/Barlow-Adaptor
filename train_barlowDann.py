@@ -22,6 +22,7 @@ from torch.optim import lr_scheduler
 import torch
 torch.autograd.set_detect_anomaly(True)
 import sys
+from torchmetrics.classification import MulticlassAUROC
 
 from transformers_dann import *
 from data_utils import get_data
@@ -80,6 +81,10 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
     if use_barlow:
         optimizer_barlow = optim.Adam(learner.parameters(), lr = lr_barlow)
         exp_lr_scheduler_barlow = lr_scheduler.StepLR(optimizer_barlow, step_size=20, gamma=0.33)
+
+    # weights_cataracts = torch.tensor([3,3,3,3,3,1,1,1,1,3,12,3,1,1])
+    # weights_cataracts = weights_cataracts.float()
+    # loss_class = torch.nn.NLLLoss(weight = weights_cataracts)
 
     loss_class = torch.nn.NLLLoss()
     loss_domain = torch.nn.NLLLoss()
@@ -156,8 +161,12 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
                 fa_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=False, use_mmd=True)
             elif loss_type in ['loss7']:
                 fa_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=True, use_coral=True)
+            elif loss_type in ['loss8']:
+                fa_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=True, use_mmd=True)
+            elif loss_type in ['loss9']:
+                fa_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=True, use_mmd=True, use_coral=True)
             else:
-                _, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=False, use_coral=False)
+                fa_loss, class_output, src_domain_output, tgt_domain_output = my_net(input_data=input_data, alpha=alpha, use_barlow=False, use_coral=False)
 
             err_s_label = loss_class(class_output, s_label)
             err_s_domain = loss_domain(src_domain_output, domain_label)
@@ -187,7 +196,7 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
                 err = err_s_label + fa_loss
             elif loss_type=='loss6':
                 err = err_s_label + fa_loss
-            elif loss_type=='loss7':
+            elif loss_type in ['loss7','loss8','loss9']:
                 err = err_s_label + fa_loss
             err.backward()
             if use_barlow:
@@ -205,9 +214,13 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
                     sys.stdout.flush()
             else:
                 if verbose:
-                    sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f,  fa loss: %f' \
-                        % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
-                        err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item(), fa_loss.data.cpu().item()))
+                    # sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f,  fa loss: %f' \
+                    #     % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
+                    #     err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item(), fa_loss.data.cpu().item()))
+
+                    sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err: %f' \
+                        % (epoch, i + 1, len_dataloader,err.data.cpu().item()))
+
 
                     sys.stdout.flush()
 
@@ -242,60 +255,70 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
 
 #helper functon for testing
 def test(model_path, dataloader, len_classnames, use_dict=False, use_vit=True):
-    my_net = BARLOW_DANN(len_classnames,lambd=3.9e-3, scale_factor=0.1, use_vit=use_vit)
-    my_net.load_state_dict(torch.load(model_path))
-    my_net = my_net.eval()
+    with torch.no_grad():
+        my_net = BARLOW_DANN(len_classnames,lambd=3.9e-3, scale_factor=0.1, use_vit=use_vit)
+        my_net.load_state_dict(torch.load(model_path))
+        my_net = my_net.eval()
+        metric = MulticlassAUROC(num_classes=14, average="macro", thresholds=None)
 
-    my_net = my_net.to(device)
-    print("number of classes: ", len_classnames)
-    len_dataloader = len(dataloader)
-    data_target_iter = iter(dataloader)
 
-    i = 0
-    n_total = 0
-    n_correct = 0
-    total_preds = []
-    total_labels = []
+        my_net = my_net.to(device)
+        print("number of classes: ", len_classnames)
+        len_dataloader = len(dataloader)
+        data_target_iter = iter(dataloader)
 
-    while i < len_dataloader:
+        i = 0
+        n_total = 0
+        n_correct = 0
+        total_preds = []
+        total_labels = []
+        outputs_all = []
 
-        # test model using target data
-        data_target = data_target_iter.next()
-        t_img, t_label = data_target
+        while i < len_dataloader:
 
-        t_img = t_img.to(device)
-        t_label = t_label.to(device)
+            # test model using target data
+            data_target = data_target_iter.next()
+            t_img, t_label = data_target
 
-        class_output = my_net(input_data=t_img, alpha=0, mode='test')
-        pred = class_output.data.max(1, keepdim=True)[1]
+            t_img = t_img.to(device)
+            t_label = t_label.to(device)
 
-        if use_dict:
-            valid_pred, valid_label = mapper_d99_cat(t_label, pred)
-        else:
-            valid_pred, valid_label = pred, t_label
-            
-        n_correct += valid_pred.eq(valid_label.data.view_as(valid_pred)).cpu().sum()
-        total_preds = total_preds + list(valid_pred.data.cpu().numpy().astype(int).reshape((-1,)))
-        total_labels = total_labels + list(valid_label.data.cpu().numpy().astype(int).reshape((-1,)))
-        # print(valid_label.size(dim=0))
-        n_total += int(valid_label.size(dim=0))
+            class_output = my_net(input_data=t_img, alpha=0, mode='test')
+            pred = class_output.data.max(1, keepdim=True)[1]
+            outputs_all.append(class_output.cpu())
 
-        i += 1
+            if use_dict:
+                valid_pred, valid_label = mapper_d99_cat(t_label, pred)
+            else:
+                valid_pred, valid_label = pred, t_label
+                
+            n_correct += valid_pred.eq(valid_label.data.view_as(valid_pred)).cpu().sum()
+            total_preds = total_preds + list(valid_pred.data.cpu().numpy().astype(int).reshape((-1,)))
+            total_labels = total_labels + list(valid_label.data.cpu().numpy().astype(int).reshape((-1,)))
+            # print(valid_label.size(dim=0))
+            n_total += int(valid_label.size(dim=0))
 
-    # print(valid_pred)
-    
-    accu = n_correct.data.numpy() * 1.0 / n_total
-    acc,aacc = visda_acc(total_preds,total_labels)
+            i += 1
+
+        # print(valid_pred)
+        
+        accu = n_correct.data.numpy() * 1.0 / n_total
+        acc,aacc = visda_acc(total_preds,total_labels)
+
+        outputs_all = torch.cat(outputs_all,dim=0)
+        auroc = metric((outputs_all), torch.tensor(total_labels))
+        print("roc auc score: ", auroc)
+
     # micro_acc = micro_accuracy(total_preds, total_labels)
     print("n_total: ", n_total)
     # print("micro accuracy: ", micro_acc)
     print("visda accuracy: ", acc)
     print("classwise accuracy: ", aacc)
-    return accu
+    return acc
 
 # training
 save_file = sys.argv[5]
-save_path = './cataracts_saved_models/'+save_file
+save_path = './cataracts_saved_models_2/'+save_file
 log_path = "./logs/"+save_file[:-4]+".txt"
 log_file = open(log_path,'w')
 best_accu_t = 0.0

@@ -9,16 +9,25 @@ from torchvision import transforms
 
 from transform_utils import Transform, data_transforms, data_transforms99, data_transforms_office
 
-def get_data_transforms(dataset):
+def get_data_transforms(dataset, data_path=''):
     if dataset=='cataracts':
-        data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_cataracts"
+        if data_path!='':
+            data_dir = data_path
+        else:
+            data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/cataracts/cataracts_final"
         chosen_data_transform = data_transforms
     elif dataset=='cataracts_trainval':
-        data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_cataracts_trainval"
+        if data_path!='':
+            data_dir = data_path
+        else:
+            data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_cataracts_trainval"
         chosen_data_transform = data_transforms
 
     elif dataset=='d99':
-        data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_d99"
+        if data_path!='':
+            data_dir = data_path
+        else:
+            data_dir = "/home/ubuntu/Desktop/Domain_Adaptation_Project/data/final_d99"
         chosen_data_transform = data_transforms99
 
     elif dataset=='art':
@@ -36,8 +45,8 @@ def get_data_transforms(dataset):
 
     return data_dir, chosen_data_transform
 
-def get_data(dataset, batch_size=32, barlow_batch_size=32, cross_valid_k=1, use_barlow=False):
-    data_dir, chosen_data_transform = get_data_transforms(dataset)
+def get_data(dataset, batch_size=32, barlow_batch_size=32, cross_valid_k=1, use_barlow=False, data_path=''):
+    data_dir, chosen_data_transform = get_data_transforms(dataset, data_path)
     dataset_dict = {}
     dataloaders = {}
     

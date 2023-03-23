@@ -222,7 +222,11 @@ class ViTModels(nn.Module):
         else:
             timm_model = timm.create_model('vit_base_patch16_224', num_classes=in_features, pretrained=True)
             timm.models.load_checkpoint(timm_model, "vit_checkpoints/ViT-B_16-224.npz")
+            # timm.models.load_checkpoint(timm_model, "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/vit_checkpoints/mae_pretrain_vit_base.pth", strict=False)
+            # timm_model.head = nn.Identity()
             print("Loaded Checkpoint of ViT vit_checkpoints/ViT-B_16-224.npz")
+            # print("Loaded Checkpoint of ViT vit_checkpoints/mae_pretrain.npz")
+
             self.vitModel = timm_model
     def forward(self, x):
         return self.vitModel(x)
