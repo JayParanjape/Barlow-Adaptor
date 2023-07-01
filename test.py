@@ -5,16 +5,17 @@ from sklearn.metrics import classification_report, confusion_matrix, roc_auc_sco
 from utils import *
 from data_utils import get_data
 from transform_utils import *
-from transformers_dann import *
+from model import *
 import sys
 from matplotlib import pyplot as plt
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 
 mode = int(sys.argv[1])
+use_sam_modality = True
 
-class_names,d99_dataloaders,_ = get_data("d99", batch_size=128)
-class_names,cata_dataloaders,_ = get_data("cataracts")
+class_names,d99_dataloaders,_ = get_data("d99", batch_size=128,use_sam=use_sam_modality)
+class_names,cata_dataloaders,_ = get_data("cataracts", use_sam=use_sam_modality)
 
 
 from torchmetrics.classification import MulticlassAUROC, MulticlassROC
@@ -160,9 +161,9 @@ def test(model, dataloader, len_classnames, use_dict=False):
         return fpr, tpr
         # return my_net
 
-def load_model(model_path, class_names, use_vit=True):
+def load_model(model_path, class_names, use_vit=True, use_sam_modality=False):
     len_classnames = len(class_names)
-    my_net = BARLOW_DANN(len_classnames,lambd=3.9e-3, scale_factor=0.1, use_vit=use_vit)
+    my_net = BARLOW_DANN(len_classnames,lambd=3.9e-3, scale_factor=0.1, use_vit=use_vit, sam_modality=use_sam_modality)
     my_net.load_state_dict(torch.load(model_path))
     my_net = my_net.eval()
     return my_net
@@ -284,6 +285,7 @@ def test_DANN(model_path, dataloader, len_classnames, use_dict=False):
 
         return
 
+#target only and source only testing
 if mode==1:
     model_r50 = models.resnet50(pretrained=True)
     num_ftrs = model_r50.fc.in_features
@@ -299,58 +301,21 @@ if mode==1:
     # test_model_mycode2(model_r50,d99_dataloaders['test'])
     test_model_mycode2(model_r50,cata_dataloaders['test'])
 
+#testing after domain adaptation
 elif mode==2:
-    #only  VIT source and target
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_cataracts_tgt_d99_train_timm_bs16_bm1e-3_loss4.pth"
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss4.pth"
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss4_effort2_best.pth"
-    #coral r50
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss5_best.pth"
-    #mmd r50
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss6_best.pth"
     #barlow+coral r50
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/final_checkpoints/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss7_best.pth"
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_cataracts_tgt_d99_timm_bs32_bm1e-3_loss7_best.pth"
-    model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_cataracts_tgt_d99_timm_bs64_bm1e-3_loss6_best.pth"
-    # print("Trained with MMD d99 to cata, testing on cata")
-    model = load_model(model_path,class_names,use_vit=True)
-    test(model, d99_dataloaders['test'], len(class_names))
-    #barlow+mmd r50
-    # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss8_best.pth"
+    model_path = "checkpoints/final_checkpoints/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss7_best.pth"
+    model = load_model(model_path,class_names,use_vit=False)
+    test(model, cata_dataloaders['test'], len(class_names))
 
-    # #coral timm
-    # model_path1 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss5_best.pth"
-    # #mmd timm
-    # model_path2 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss6_best.pth"
+
     # #barlow+coral timm
-    # model_path3 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-4_loss7_effort_2_best.pth"
-    # #barlow+mmd timm
-    # # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss8.pth"
-    # #only barlow
-    # model_path4 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_r50_bs16_bm1e-3_loss1_best.pth"
-    # model_path4_2 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-3_loss1_best.pth"
-    # model_path4_3 = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cataracts_train_timm_bs16_bm1e-4_loss7_effort_2_best.pth"   
-    # print("CORAL")
-    # model = load_model(model_path1,class_names,use_vit=True)
-    # test(model, cata_dataloaders['test'], len(class_names))
-
-    # print("MMD")
-    # model = load_model(model_path2,class_names,use_vit=True)
-    # test(model, cata_dataloaders['test'], len(class_names))
-
-    # print("BARLOW CORAL")
-    # model = load_model(model_path3,class_names,use_vit=False)
-    # test(model, cata_dataloaders['test'], len(class_names))
-
-    # print("Only Barlow r50 cata")
-    # model = load_model(model_path4, class_names, use_vit=False)
-    # test(model, cata_dataloaders['test'], len(class_names))
-
-    # print("Only Barlow vit cata")
-    # model = load_model(model_path4_3, class_names, use_vit=True)
-    # test(model, cata_dataloaders['test'], len(class_names))
+    model_path2 = "checkpoints/src_d99_tgt_cataracts_train_timm_bs16_bm1e-4_loss7_effort_2_best.pth"
+    model = load_model(model_path2,class_names,use_vit=True)
+    test(model, cata_dataloaders['test'], len(class_names))
 
 
+#testing for only DANN approach
 elif mode==3:
     # model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_d99_tgt_cata_simpledann_best.pth"
     model_path = "/home/ubuntu/Desktop/Domain_Adaptation_Project/repos/Transformer_dann_barlow/cataracts_saved_models_2/src_cata_tgt_d99_simpledann_best.pth"

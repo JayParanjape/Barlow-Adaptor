@@ -1,11 +1,6 @@
 from PIL import Image, ImageOps, ImageFilter
 import torchvision.transforms as transforms
 import random
-'''
-#####
-Adapted from https://github.com/facebookresearch/barlowtwins
-#####
-'''
 
 
 class GaussianBlur(object):

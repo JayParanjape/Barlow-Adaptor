@@ -9,6 +9,7 @@ from torchvision import transforms
 
 from transform_utils import Transform, data_transforms, data_transforms99, data_transforms_office
 
+#function to choose data transforms and data path based on the dataset name. Change paths here for your own datasets
 def get_data_transforms(dataset, data_path=''):
     if dataset=='cataracts':
         if data_path!='':
@@ -45,16 +46,18 @@ def get_data_transforms(dataset, data_path=''):
 
     return data_dir, chosen_data_transform
 
-def get_data(dataset, batch_size=32, barlow_batch_size=32, cross_valid_k=1, use_barlow=False, data_path=''):
+#driver function for creating dataloaders
+def get_data(dataset, batch_size=32, cross_valid_k=1, data_path=''):
     data_dir, chosen_data_transform = get_data_transforms(dataset, data_path)
     dataset_dict = {}
     dataloaders = {}
     
+    #in case of k fold cross validation, there should be a directory called trainval with all imaegs in the training and validation set in the same folder 
     if cross_valid_k>1:
         dataloaders_list = []
         dataset_total = datasets.ImageFolder(os.path.join(data_dir,'trainval'),chosen_data_transform['train'])
         class_names = dataset_total.classes
-        print("in data utils: ", len(dataset_total))
+        print("length of dataset: ", len(dataset_total))
         train_indices_list, val_indices_list =  crossvalid(len(dataset_total), cross_valid_k)
         for i in range(len(train_indices_list)):
             train_set = torch.utils.data.dataset.Subset(dataset_total,train_indices_list[i])
@@ -66,6 +69,7 @@ def get_data(dataset, batch_size=32, barlow_batch_size=32, cross_valid_k=1, use_
 
         return class_names, dataloaders_list
 
+    #in case of predefined train, val and test splits, expected to have separate folders in the root directory
     for x in ['train','val','test']:
         try:
             dataset_dict[x] = datasets.ImageFolder(os.path.join(data_dir,x),chosen_data_transform[x])
@@ -75,20 +79,9 @@ def get_data(dataset, batch_size=32, barlow_batch_size=32, cross_valid_k=1, use_
         dataloaders[x] = torch.utils.data.DataLoader(dataset_dict[x], batch_size=batch_size, shuffle=True, num_workers=4)
 
 
-    if use_barlow:
-        barlow_transform = Transform()
-        try:
-            barlow_dataset = datasets.ImageFolder(os.path.join(data_dir,'train'), barlow_transform)
-        except:
-            barlow_dataset = datasets.ImageFolder(data_dir, barlow_transform)
-
-        barlow_dataloader = torch.utils.data.DataLoader(barlow_dataset, batch_size = barlow_batch_size, num_workers=4)
-    else:
-        barlow_dataloader=None
-
     class_names = dataset_dict['train'].classes
-    print(len(dataloaders['train']))
-    return class_names, dataloaders, barlow_dataloader
+    print("length of training data: ",len(dataloaders['train']))
+    return class_names, dataloaders
 
 # define a cross validation function
 def crossvalid(total_size=0,k_fold=5):
@@ -96,8 +89,7 @@ def crossvalid(total_size=0,k_fold=5):
     val_indices_list = []
     fraction = 1/k_fold
     seg = int(total_size * fraction)
-    # tr:train,val:valid; r:right,l:left;  eg: trrr: right index of right side train subset 
-    # index: [trll,trlr],[vall,valr],[trrl,trrr]
+
     for i in range(k_fold):
         trll = 0
         trlr = i * seg
@@ -105,9 +97,6 @@ def crossvalid(total_size=0,k_fold=5):
         valr = i * seg + seg
         trrl = valr
         trrr = total_size
-        # msg
-#         print("train indices: [%d,%d),[%d,%d), test indices: [%d,%d)" 
-#               % (trll,trlr,trrl,trrr,vall,valr))
         
         train_left_indices = list(range(trll,trlr))
         train_right_indices = list(range(trrl,trrr))
