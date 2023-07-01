@@ -17,6 +17,7 @@ arguments:
 15 - k for k fold
 '''
 
+#import dependencies
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import torch
@@ -31,22 +32,31 @@ from utils import *
 
 #constants and hyperparameters
 # device = 'cpu'
+source_dataset = sys.argv[1]
+target_dataset = sys.argv[2]
+use_dict_src = True if (sys.argv[3]).lower()=='true' else False
+use_dict_tgt = True if (sys.argv[4]).lower()=='true' else False
+save_file = sys.argv[5]
 device_arg = sys.argv[6]
-device = torch.device("cuda:"+device_arg if torch.cuda.is_available() else "cpu")
-lr = 8e-4 if sys.argv[10]=='' else float(sys.argv[10])
-print(lr)
-lr_barlow = 1e-4
 batch_sz = int(sys.argv[7])
 barlow_batch_sz = int(sys.argv[8])
+use_barlow = True if sys.argv[9].lower()=='true' else False
+lr = 8e-4 if sys.argv[10]=='' else float(sys.argv[10])
+fa_loss_multiplier = float(sys.argv[11])
+alpha = float(sys.argv[12])
+loss_type = sys.argv[13]
+use_vit = True if sys.argv[14].lower()=='true' else False
+k_fold_k = int(sys.argv[15])
+
+device = torch.device("cuda:"+device_arg if torch.cuda.is_available() else "cpu")
+print(lr)
+lr_barlow = 1e-4
 n_epoch = 100
 manual_seed = random.randint(1, 10000)
 random.seed(manual_seed)
 torch.manual_seed(manual_seed)
 
-source_dataset = sys.argv[1]
-target_dataset = sys.argv[2]
-use_vit = True if sys.argv[14].lower()=='true' else False
-k_fold_k = int(sys.argv[15])
+
 print("detected datasets: ",source_dataset, " ",target_dataset)
 
 source_data_class_names, source_dataloader, source_barlow_dataloader = get_data(source_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
@@ -54,11 +64,8 @@ if k_fold_k<=1:
     target_data_class_names, target_dataloader, target_barlow_dataloader = get_data(target_dataset,batch_size=batch_sz, barlow_batch_size=barlow_batch_sz)
 else:
     target_data_class_names, target_dataloaders_list = get_data(target_dataset,batch_size=batch_sz,cross_valid_k=k_fold_k, use_barlow=False)
-fa_loss_multiplier = float(sys.argv[11])
 
 
-use_barlow = True if sys.argv[9].lower()=='true' else False
-loss_type = sys.argv[13]
 
 def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
     # load model
@@ -124,7 +131,6 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
 
             p = float(i + epoch * len_dataloader) / n_epoch / len_dataloader
             # alpha = 2. / (1. + np.exp(-10 * p)) - 1
-            alpha = float(sys.argv[12])
             # print(alpha)
 
             # training model using source data
@@ -232,10 +238,8 @@ def train(source_dataloader, target_dataloader, verbose=True, n_epoch=100):
             exp_lr_scheduler_barlow.step()
 
         if epoch%5==0:
-            use_dict_src = True if (sys.argv[3]).lower()=='true' else False
             accu_s = test(save_path, source_dataloader['val'],len(source_data_class_names),use_dict=use_dict_src, use_vit=use_vit)
             print('Accuracy of the %s dataset: %f' % (sys.argv[1], accu_s))
-            use_dict_tgt = True if (sys.argv[4]).lower()=='true' else False
             accu_t = test(save_path,target_dataloader['val'],len(source_data_class_names),use_dict=use_dict_tgt, use_vit=use_vit)
             print('Accuracy of the %s dataset: %f\n' % (sys.argv[2], accu_t))
             if accu_t > best_accu_t:
@@ -317,7 +321,6 @@ def test(model_path, dataloader, len_classnames, use_dict=False, use_vit=True):
     return acc
 
 # training
-save_file = sys.argv[5]
 save_path = './cataracts_saved_models_2/'+save_file
 log_path = "./logs/"+save_file[:-4]+".txt"
 log_file = open(log_path,'w')
