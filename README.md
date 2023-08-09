@@ -50,5 +50,12 @@ python train.py <dataset1 name> <dataset2 name> <save_path> "cuda:0" 16 0.0001 1
 
 ## Citation
 ```
-To be filled
+@misc{paranjape2023crossdataset,
+      title={Cross-Dataset Adaptation for Instrument Classification in Cataract Surgery Videos}, 
+      author={Jay N. Paranjape and Shameema Sikder and Vishal M. Patel and S. Swaroop Vedula},
+      year={2023},
+      eprint={2308.04035},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
 ```
